@@ -10,7 +10,6 @@
 
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
     <style>
@@ -393,6 +392,12 @@
     <div id="editScreen" class="screen">
         <h2 id="editHeader" style="margin-bottom: 20px; color:var(--primary-color);">הוספת שיר חדש</h2>
         <input type="hidden" id="editId">
+
+        <div class="play-nav" style="margin-bottom: 25px;">
+            <button class="nav-btn" onclick="window.editPrevSong()"><i class="fa-solid fa-backward"></i> הקודם</button>
+            <button class="nav-btn" onclick="window.showScreen('listScreen')"><i class="fa-solid fa-list"></i> רשימה</button>
+            <button class="nav-btn" onclick="window.editNextSong()">הבא <i class="fa-solid fa-forward"></i></button>
+        </div>
         
         <div class="form-group">
             <label>שם השיר</label>
@@ -452,7 +457,6 @@
   appId: "1:291004279844:web:ab3679d6f926677333bcb1"
 };
         let db = null;
-        let storage = null;
         let songs = [];
         window.currentSongId = null;
         let tempMediaLinks = [];
@@ -481,17 +485,15 @@
         }
 
         // בדיקה והגדרת Firebase
+        // הערה: אחסון קבצים (Firebase Storage) אינו נדרש יותר כי צירוף השירים
+        // הוא כעת קישור (YouTube/Spotify) ולא קובץ מועלה. לכן מאתחלים רק Firestore,
+        // כדי שתקלה כלשהי ב-Storage לא תפיל את החיבור לבסיס הנתונים.
         try {
             if (typeof firebase !== 'undefined' && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("החלף")) {
                 firebase.initializeApp(firebaseConfig);
                 db = firebase.firestore();
-                storage = firebase.storage();
 
                 const statusEl = document.getElementById('connectionStatus');
-                if (statusEl) {
-                    statusEl.innerText = "מחובר לסנכרון ענן (Firebase)";
-                    statusEl.style.color = "#2ecc71";
-                }
 
                 db.collection("songs").onSnapshot((snapshot) => {
                     songs = [];
@@ -504,8 +506,19 @@
                         const updatedCurrent = songs.find(s => s.id === window.currentSongId);
                         if (updatedCurrent) openDetailScreen(window.currentSongId);
                     }
+                    if (statusEl) {
+                        statusEl.innerText = "מחובר לסנכרון ענן (Firebase)";
+                        statusEl.style.color = "#2ecc71";
+                    }
                 }, (err) => {
+                    // שגיאת חיבור/הרשאות מול Firestore (למשל כללי אבטחה חוסמים) -
+                    // חוזרים לאחסון מקומי כדי שהאפליקציה תמשיך לעבוד
                     console.error("Firestore snapshot error:", err);
+                    db = null;
+                    if (statusEl) {
+                        statusEl.innerText = "שגיאת חיבור לענן - עובד במצב מקומי (" + (err.code || err.message) + ")";
+                        statusEl.style.color = "#e74c3c";
+                    }
                     loadLocalSongs();
                     renderList();
                 });
@@ -519,6 +532,12 @@
             }
         } catch (err) {
             console.error("Firebase init error:", err);
+            db = null;
+            const statusEl = document.getElementById('connectionStatus');
+            if (statusEl) {
+                statusEl.innerText = "שגיאת חיבור לענן - עובד במצב מקומי";
+                statusEl.style.color = "#e74c3c";
+            }
             loadLocalSongs();
         }
 
@@ -831,11 +850,19 @@
                 if (db) {
                     if (id) {
                         await db.collection("songs").doc(id).update(songData);
+                        const index = songs.findIndex(s => s.id === id);
+                        if (index !== -1) {
+                            const existingOrder = songs[index].order;
+                            songs[index] = { id, order: existingOrder, ...songData };
+                        }
                     } else {
                         songData.order = songs.length;
                         const docRef = await db.collection("songs").add(songData);
                         window.currentSongId = docRef.id;
+                        songs.push({ id: docRef.id, ...songData });
                     }
+                    saveLocalSongs();
+                    renderList();
                 } else {
                     if (id) {
                         const existing = songs.find(s => s.id === id);
@@ -870,6 +897,9 @@
                 try {
                     if (db) {
                         await db.collection("songs").doc(id).delete();
+                        songs = songs.filter(s => s.id !== id);
+                        saveLocalSongs();
+                        renderList();
                     } else {
                         songs = songs.filter(s => s.id !== id);
                         saveLocalSongs();
@@ -1021,7 +1051,8 @@
                         };
 
                         if (db) {
-                            await db.collection("songs").add(songData);
+                            const docRef = await db.collection("songs").add(songData);
+                            songs.push({ id: docRef.id, ...songData });
                         } else {
                             songData.id = "local_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
                             songs.push(songData);
@@ -1029,10 +1060,8 @@
                         addedCount++;
                     }
 
-                    if (!db) {
-                        saveLocalSongs();
-                        renderList();
-                    }
+                    saveLocalSongs();
+                    renderList();
 
                     hideSpinner();
                     alert(`יבוא הנתונים הושלם בהצלחה! נוספו ${addedCount} שירים.`);
@@ -1067,6 +1096,53 @@
             if (index > 0) window.openDetailScreen(songs[index - 1].id);
         }
 
+        // בודק האם יש שינויים שלא נשמרו בטופס העריכה ביחס לשיר המקורי
+        function isEditFormDirty(song) {
+            if (!song) return false;
+            const currentMediaLinks = JSON.stringify(tempMediaLinks);
+            const originalMediaLinks = JSON.stringify(song.mediaLinks || []);
+            return (
+                document.getElementById('editTitle').value !== (song.title || '') ||
+                document.getElementById('editKey').value !== (song.key || '') ||
+                document.getElementById('editOrigKey').value !== (song.origKey || '') ||
+                document.getElementById('editShift').value !== (song.shift || '') ||
+                document.getElementById('editNotes').value !== (song.notes || '') ||
+                document.getElementById('editLink').value !== (song.link || '') ||
+                currentMediaLinks !== originalMediaLinks
+            );
+        }
+
+        // מעבר לשיר הקודם/הבא ישירות ממסך העריכה, כדי לא לחייב חזרה לרשימה בין כל שיר
+        function navigateEditSong(direction) {
+            const id = document.getElementById('editId').value;
+            if (!id) {
+                alert("יש לשמור את השיר החדש (או ללחוץ ביטול) לפני מעבר לשיר אחר.");
+                return;
+            }
+            const index = songs.findIndex(s => s.id === id);
+            if (index === -1) return;
+
+            const targetIndex = index + direction;
+            if (targetIndex < 0) {
+                alert("זהו השיר הראשון ברשימה.");
+                return;
+            }
+            if (targetIndex >= songs.length) {
+                alert("זהו השיר האחרון ברשימה.");
+                return;
+            }
+
+            const currentSong = songs.find(s => s.id === id);
+            if (isEditFormDirty(currentSong) && !confirm("יש שינויים שלא נשמרו בשיר הנוכחי. לעבור בכל זאת ולאבד אותם?")) {
+                return;
+            }
+
+            window.openEditScreen(songs[targetIndex].id);
+        }
+
+        function editPrevSong() { navigateEditSong(-1); }
+        function editNextSong() { navigateEditSong(1); }
+
         // === חשיפה ל-Global Scope (מונע את חסימת המיניפיקציה של Netlify) ===
         window.openEditScreen = openEditScreen;
         window.openDetailScreen = openDetailScreen;
@@ -1078,6 +1154,8 @@
         window.importFromCSV = importFromCSV;
         window.nextSong = nextSong;
         window.prevSong = prevSong;
+        window.editPrevSong = editPrevSong;
+        window.editNextSong = editNextSong;
         window.addMediaLink = addMediaLink;
         window.removeTempMediaLink = removeTempMediaLink;
 
