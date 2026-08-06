@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>חמישי הרכב - השירים שלנו</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --primary-color: #D4AC0D;
+            --text-main: #ffffff;
+            --text-sec: #b3b3b3;
+            --danger: #e74c3c;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Assistant', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding-bottom: 80px;
+        }
+
+        header {
+            background-color: var(--surface-color);
+            padding: 15px 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .header-content h1 {
+            font-size: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .screen { display: none; padding: 20px; animation: fadeIn 0.3s ease; }
+        .screen.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* סרגל כפתורי יבוא/יצוא */
+        .tools-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tool-btn {
+            flex: 1;
+            background-color: var(--surface-color);
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+            padding: 12px 10px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .tool-btn:active {
+            background-color: #2a2a2a;
+        }
+
+        .song-list { list-style: none; }
+        .song-card {
+            background-color: var(--surface-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: transform 0.1s;
+        }
+        .song-card:active { transform: scale(0.98); }
+        .song-title { font-size: 1.4rem; font-weight: 600; }
+        .song-key-badge {
+            background-color: var(--primary-color);
+            color: #000;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 800;
+            font-size: 1.2rem;
+            direction: ltr;
+        }
+
+        .fab {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            background-color: var(--primary-color);
+            color: #000;
+            width: 65px;
+            height: 65px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);
+            cursor: pointer;
+            z-index: 9999;
+            border: none;
+            outline: none;
+        }
+        .fab i {
+            pointer-events: none;
+        }
+
+        .detail-header { text-align: center; margin-bottom: 20px; }
+        .detail-title { font-size: 2.5rem; color: var(--primary-color); margin-bottom: 10px; }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .info-box {
+            background-color: var(--surface-color);
+            padding: 15px 5px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .info-box span { display: block; color: var(--text-sec); font-size: 0.95rem; margin-bottom: 5px; }
+        .info-box strong { font-size: 1.4rem; direction: ltr; display: block;}
+        
+        .notes-section {
+            background-color: #2a2a2a;
+            border-right: 4px solid var(--primary-color);
+            padding: 20px;
+            border-radius: 8px;
+            font-size: 1.3rem;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            white-space: pre-wrap;
+        }
+
+        .audio-list-container { margin-bottom: 25px; }
+        .audio-item {
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .audio-item span {
+            display: block;
+            margin-bottom: 10px;
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+        
+        .edit-audio-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #333;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .edit-audio-item button {
+            background-color: var(--danger);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .btn-large {
+            display: block;
+            width: 100%;
+            background-color: var(--surface-color);
+            color: var(--text-main);
+            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 1.5rem;
+            font-weight: 600;
+            border: 2px solid var(--primary-color);
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+
+        .play-nav { display: flex; justify-content: space-between; gap: 10px; }
+        .nav-btn {
+            flex: 1;
+            background-color: #333;
+            color: white;
+            border: none;
+            padding: 20px 10px;
+            border-radius: 10px;
+            font-size: 1.2rem;
+            cursor: pointer;
+        }
+
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 1.2rem; color: var(--text-sec); }
+        input[type="text"], input[type="url"], textarea {
+            width: 100%;
+            background-color: var(--surface-color);
+            border: 1px solid #444;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 1.2rem;
+        }
+        input:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
+        textarea { height: 150px; resize: none; }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            background-color: var(--surface-color);
+            border: 1px dashed var(--primary-color);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+        }
+
+        .action-btns { display: flex; gap: 15px; }
+        .btn-save { flex: 2; background-color: var(--primary-color); color: #000; border: none; font-weight: bold;}
+        .btn-cancel { flex: 1; background-color: #555; color: white; border: none; }
+        .btn-delete { width: 100%; background-color: var(--danger); color: white; border: none; margin-top: 20px; padding: 15px; border-radius: 8px; font-size: 1.2rem; cursor: pointer; display: none;}
+        
+        #loadingSpinner {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            color: var(--primary-color);
+            z-index: 20000;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.8rem;
+            flex-direction: column;
+        }
+
+        .status-badge {
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-sec);
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loadingSpinner">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size: 3rem; margin-bottom: 15px;"></i>
+        <span id="spinnerText">מעלה קבצים...</span>
+    </div>
+
+    <header>
+        <div class="header-content">
+            <img src="logo.png" alt="לוגו" style="height: 55px; border-radius: 50%;" onerror="this.style.display='none'; document.getElementById('fallbackIcon').style.display='inline-block';">
+            <i id="fallbackIcon" class="fa-solid fa-microphone-lines" style="display: none; font-size: 2rem; color: var(--primary-color);"></i>
+            <h1>Acoustic - השירים שלנו</h1>
+        </div>
+        <div id="connectionStatus" class="status-badge">אחסון מקומי פעיל</div>
+    </header>
+
+    <div id="listScreen" class="screen active">
+        
+        <div class="tools-bar">
+            <button class="tool-btn" onclick="window.exportToCSV()">
+                <i class="fa-solid fa-file-excel"></i> יצוא ל-CSV
+            </button>
+            <button class="tool-btn" onclick="window.triggerImportCSV()">
+                <i class="fa-solid fa-file-import"></i> יבוא מ-CSV
+            </button>
+            <input type="file" id="importCsvInput" accept=".csv" style="display: none;" onchange="window.importFromCSV(event)">
+        </div>
+
+        <ul class="song-list" id="songList"></ul>
+        <button class="fab" id="fabAddBtn" onclick="window.openEditScreen(null)" aria-label="הוסף שיר">
+            <i class="fa-solid fa-plus"></i>
+        </button>
+    </div>
+
+    <div id="detailScreen" class="screen">
+        <div class="detail-header">
+            <h2 class="detail-title" id="detTitle">שם השיר</h2>
+            <button onclick="window.openEditScreen(window.currentSongId)" style="background:none; border:none; color:var(--text-sec); font-size:1.2rem; cursor:pointer;"><i class="fa-solid fa-pen"></i> ערוך שיר</button>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-box">
+                <span>סולם</span>
+                <strong id="detKey">Am</strong>
+            </div>
+            <div class="info-box">
+                <span>סולם מקורי</span>
+                <strong id="detOrigKey">Am</strong>
+            </div>
+            <div class="info-box">
+                <span>שינוי טון</span>
+                <strong id="detShift">-1</strong>
+            </div>
+        </div>
+
+        <label>דגשים לנגינה:</label>
+        <div class="notes-section" id="detNotes"></div>
+
+        <div id="detAudioContainer" class="audio-list-container"></div>
+
+        <a href="#" target="_blank" class="btn-large" id="detLink">
+            <i class="fa-solid fa-file-pdf"></i> אקורדים / TAB4U
+        </a>
+
+        <div class="play-nav">
+            <button class="nav-btn" onclick="window.prevSong()"><i class="fa-solid fa-backward"></i> הקודם</button>
+            <button class="nav-btn" onclick="window.showScreen('listScreen')"><i class="fa-solid fa-list"></i> רשימה</button>
+            <button class="nav-btn" onclick="window.nextSong()">הבא <i class="fa-solid fa-forward"></i></button>
+        </div>
+    </div>
+
+    <div id="editScreen" class="screen">
+        <h2 id="editHeader" style="margin-bottom: 20px; color:var(--primary-color);">הוספת שיר חדש</h2>
+        <input type="hidden" id="editId">
+        
+        <div class="form-group">
+            <label>שם השיר</label>
+            <input type="text" id="editTitle" placeholder="לדוגמה: צל כבד">
+        </div>
+
+        <div class="info-grid">
+            <div class="form-group">
+                <label>סולם</label>
+                <input type="text" id="editKey" placeholder="Am..." dir="ltr">
+            </div>
+            <div class="form-group">
+                <label>סולם מקורי</label>
+                <input type="text" id="editOrigKey" placeholder="Am..." dir="ltr">
+            </div>
+            <div class="form-group">
+                <label>שינוי טון</label>
+                <input type="text" id="editShift" placeholder="-1..." dir="ltr">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>דגשים לנגינה</label>
+            <textarea id="editNotes" placeholder="מי מתחיל? איזה מקצב?"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>קישור (TAB4U / דרייב / PDF)</label>
+            <input type="url" id="editLink" placeholder="https://..." dir="ltr">
+        </div>
+
+        <div class="form-group" style="background-color: #252525; padding: 15px; border-radius: 10px;">
+            <label style="color: var(--primary-color);"><i class="fa-solid fa-cloud-arrow-up"></i> צירוף הקלטות</label>
+            <input type="file" id="editAudio" accept="audio/*" multiple>
+            <div id="editAudioList"></div>
+        </div>
+
+        <div class="action-btns">
+            <button class="nav-btn btn-save" onclick="window.saveSong()"><i class="fa-solid fa-check"></i> שמור</button>
+            <button class="nav-btn btn-cancel" onclick="window.showScreen('listScreen')">ביטול</button>
+        </div>
+        
+        <button class="btn-delete" id="btnDelete" onclick="window.deleteSong()"><i class="fa-solid fa-trash"></i> מחק שיר</button>
+    </div>
+
+    <script>
+        // === 1. הגדרות Firebase / אחסון מקומי ===
+        const firebaseConfig = {
+            apiKey: "החלף_ב-API_KEY_שלך",
+            authDomain: "your-app.firebaseapp.com",
+            projectId: "your-app-id",
+            storageBucket: "your-app.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
+        let db = null;
+        let storage = null;
+        let songs = [];
+        window.currentSongId = null;
+        let tempAudioFiles = [];
+
+        // טעינת שירים מ-LocalStorage במקרה שאין Firebase
+        function loadLocalSongs() {
+            try {
+                const localData = localStorage.getItem('acoustic_songs');
+                if (localData) {
+                    songs = JSON.parse(localData);
+                } else {
+                    songs = [];
+                }
+            } catch (e) {
+                console.error("Local storage read error", e);
+                songs = [];
+            }
+        }
+
+        function saveLocalSongs() {
+            try {
+                localStorage.setItem('acoustic_songs', JSON.stringify(songs));
+            } catch (e) {
+                console.error("Local storage save error", e);
+            }
+        }
+
+        // בדיקה והגדרת Firebase
+        try {
+            if (typeof firebase !== 'undefined' && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("החלף")) {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                storage = firebase.storage();
+
+                const statusEl = document.getElementById('connectionStatus');
+                if (statusEl) {
+                    statusEl.innerText = "מחובר לסנכרון ענן (Firebase)";
+                    statusEl.style.color = "#2ecc71";
+                }
+
+                db.collection("songs").onSnapshot((snapshot) => {
+                    songs = [];
+                    snapshot.forEach((doc) => {
+                        songs.push({ id: doc.id, ...doc.data() });
+                    });
+                    saveLocalSongs();
+                    renderList();
+                    if (window.currentSongId) {
+                        const updatedCurrent = songs.find(s => s.id === window.currentSongId);
+                        if (updatedCurrent) openDetailScreen(window.currentSongId);
+                    }
+                }, (err) => {
+                    console.error("Firestore snapshot error:", err);
+                    loadLocalSongs();
+                    renderList();
+                });
+            } else {
+                console.log("Firebase not configured. Running in Local Storage mode.");
+                const statusEl = document.getElementById('connectionStatus');
+                if (statusEl) {
+                    statusEl.innerText = "מצב מקומי (ללא סנכרון ענן)";
+                }
+                loadLocalSongs();
+            }
+        } catch (err) {
+            console.error("Firebase init error:", err);
+            loadLocalSongs();
+        }
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const targetScreen = document.getElementById(screenId);
+            if (targetScreen) {
+                targetScreen.classList.add('active');
+            }
+            window.scrollTo(0, 0);
+        }
+
+        function renderList() {
+            const list = document.getElementById('songList');
+            if (!list) return;
+            list.innerHTML = '';
+            
+            if (songs.length === 0) {
+                list.innerHTML = `<li style="text-align:center; color: var(--text-sec); padding: 40px 10px; font-size: 1.2rem;">אין עדיין שירים.<br>לחץ על כפתור הפלוס (+) למטה כדי להוסיף שיר ראשון, או יבא רשימה מ-CSV!</li>`;
+                return;
+            }
+            
+            songs.forEach(song => {
+                const li = document.createElement('li');
+                li.className = 'song-card';
+                li.onclick = () => window.openDetailScreen(song.id);
+                li.innerHTML = `
+                    <span class="song-title">${escapeHtml(song.title || 'שיר ללא שם')}</span>
+                    <span class="song-key-badge">${escapeHtml(song.key || '-')}</span>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function openDetailScreen(id) {
+            window.currentSongId = id;
+            const song = songs.find(s => s.id === id);
+            if (!song) return;
+
+            document.getElementById('detTitle').innerText = song.title || "שיר ללא שם";
+            document.getElementById('detKey').innerText = song.key || "-";
+            document.getElementById('detOrigKey').innerText = song.origKey || "-";
+            document.getElementById('detShift').innerText = song.shift || "0";
+            document.getElementById('detNotes').innerText = song.notes || "אין דגשים מיוחדים.";
+            
+            const linkBtn = document.getElementById('detLink');
+            if (song.link) {
+                linkBtn.style.display = 'block';
+                linkBtn.href = song.link;
+            } else {
+                linkBtn.style.display = 'none';
+            }
+
+            const audioContainer = document.getElementById('detAudioContainer');
+            audioContainer.innerHTML = '';
+            if (song.audioFiles && song.audioFiles.length > 0) {
+                song.audioFiles.forEach(file => {
+                    const audioDiv = document.createElement('div');
+                    audioDiv.className = 'audio-item';
+                    audioDiv.innerHTML = `
+                        <span><i class="fa-solid fa-headphones"></i> ${escapeHtml(file.name)}</span>
+                        <audio controls style="width: 100%;" src="${file.url}"></audio>
+                    `;
+                    audioContainer.appendChild(audioDiv);
+                });
+                audioContainer.style.display = 'block';
+            } else {
+                audioContainer.style.display = 'none';
+            }
+
+            showScreen('detailScreen');
+        }
+
+        function openEditScreen(id = null) {
+            const isEdit = id !== null && id !== undefined && id !== '';
+            document.getElementById('editHeader').innerText = isEdit ? "עריכת שיר" : "הוספת שיר חדש";
+            document.getElementById('btnDelete').style.display = isEdit ? 'block' : 'none';
+            
+            const fileInput = document.getElementById('editAudio');
+            if (fileInput) fileInput.value = '';
+            
+            tempAudioFiles = [];
+
+            if (isEdit) {
+                const song = songs.find(s => s.id === id);
+                if (song) {
+                    document.getElementById('editId').value = song.id;
+                    document.getElementById('editTitle').value = song.title || '';
+                    document.getElementById('editKey').value = song.key || '';
+                    document.getElementById('editOrigKey').value = song.origKey || '';
+                    document.getElementById('editShift').value = song.shift || '';
+                    document.getElementById('editNotes').value = song.notes || '';
+                    document.getElementById('editLink').value = song.link || '';
+                    if (song.audioFiles) tempAudioFiles = [...song.audioFiles];
+                }
+            } else {
+                document.getElementById('editId').value = '';
+                document.getElementById('editTitle').value = '';
+                document.getElementById('editKey').value = '';
+                document.getElementById('editOrigKey').value = '';
+                document.getElementById('editShift').value = '';
+                document.getElementById('editNotes').value = '';
+                document.getElementById('editLink').value = '';
+            }
+            
+            renderEditAudioList();
+            showScreen('editScreen');
+        }
+
+        function renderEditAudioList() {
+            const list = document.getElementById('editAudioList');
+            if (!list) return;
+            list.innerHTML = '';
+            tempAudioFiles.forEach((file, index) => {
+                const div = document.createElement('div');
+                div.className = 'edit-audio-item';
+                div.innerHTML = `
+                    <span style="color: #fff; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(file.name)}</span>
+                    <button type="button" onclick="window.removeTempAudio(${index})"><i class="fa-solid fa-trash"></i> הסר</button>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function removeTempAudio(index) {
+            tempAudioFiles.splice(index, 1);
+            renderEditAudioList();
+        }
+
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function saveSong() {
+            const id = document.getElementById('editId').value;
+            const titleInput = document.getElementById('editTitle').value.trim();
+            
+            if (!titleInput) {
+                alert("אנא הזן שם לשיר");
+                return;
+            }
+
+            const fileInput = document.getElementById('editAudio');
+            const filesToUpload = fileInput ? fileInput.files : [];
+
+            showSpinner("שומר שיר...");
+
+            try {
+                let uploadedAudioList = [...tempAudioFiles];
+
+                if (filesToUpload && filesToUpload.length > 0) {
+                    if (storage) {
+                        for (let i = 0; i < filesToUpload.length; i++) {
+                            const file = filesToUpload[i];
+                            const storageRef = storage.ref(`audio/${Date.now()}_${file.name}`);
+                            const snapshot = await storageRef.put(file);
+                            const downloadURL = await snapshot.ref.getDownloadURL();
+                            
+                            uploadedAudioList.push({
+                                name: file.name,
+                                url: downloadURL
+                            });
+                        }
+                    } else {
+                        for (let i = 0; i < filesToUpload.length; i++) {
+                            const file = filesToUpload[i];
+                            if (file.size > 5 * 1024 * 1024) {
+                                alert(`הקובץ ${file.name} גדול מ-5MB ולא ניתן לשמור אותו מקומית.`);
+                                continue;
+                            }
+                            const dataUrl = await readFileAsDataURL(file);
+                            uploadedAudioList.push({
+                                name: file.name,
+                                url: dataUrl
+                            });
+                        }
+                    }
+                }
+
+                const songData = {
+                    title: titleInput,
+                    key: document.getElementById('editKey').value || "-",
+                    origKey: document.getElementById('editOrigKey').value || "-",
+                    shift: document.getElementById('editShift').value || "0",
+                    notes: document.getElementById('editNotes').value || "",
+                    link: document.getElementById('editLink').value || "",
+                    audioFiles: uploadedAudioList
+                };
+
+                if (db) {
+                    if (id) {
+                        await db.collection("songs").doc(id).update(songData);
+                    } else {
+                        const docRef = await db.collection("songs").add(songData);
+                        window.currentSongId = docRef.id;
+                    }
+                } else {
+                    if (id) {
+                        const index = songs.findIndex(s => s.id === id);
+                        if (index !== -1) {
+                            songs[index] = { id, ...songData };
+                        }
+                    } else {
+                        const newId = "local_" + Date.now();
+                        songs.push({ id: newId, ...songData });
+                        window.currentSongId = newId;
+                    }
+                    saveLocalSongs();
+                    renderList();
+                }
+
+                hideSpinner();
+                showScreen('listScreen');
+            } catch (error) {
+                console.error("Error saving song:", error);
+                alert("שגיאה בשמירה: " + error.message);
+                hideSpinner();
+            }
+        }
+
+        async function deleteSong() {
+            const id = document.getElementById('editId').value;
+            if (!id) return;
+            
+            if (confirm("בטוח שברצונך למחוק את השיר?")) {
+                showSpinner("מוחק...");
+                try {
+                    if (db) {
+                        await db.collection("songs").doc(id).delete();
+                    } else {
+                        songs = songs.filter(s => s.id !== id);
+                        saveLocalSongs();
+                        renderList();
+                    }
+                    hideSpinner();
+                    showScreen('listScreen');
+                } catch(error) {
+                    alert("שגיאה במחיקה: " + error.message);
+                    hideSpinner();
+                }
+            }
+        }
+
+        // === 2. יצוא נתונים ל-CSV (טבלה) ===
+        function exportToCSV() {
+            if (songs.length === 0) {
+                alert("אין שירים ברשימה ליצוא.");
+                return;
+            }
+
+            const headers = ["שם השיר", "סולם", "סולם מקורי", "שינוי טון", "דגשים לנגינה", "קישור"];
+            let csvContent = "\uFEFF";
+
+            const escapeCSV = (str) => {
+                if (str === null || str === undefined) return '""';
+                let text = String(str).replace(/"/g, '""');
+                return `"${text}"`;
+            };
+
+            csvContent += headers.map(escapeCSV).join(",") + "\r\n";
+
+            songs.forEach(song => {
+                const row = [
+                    song.title || "",
+                    song.key || "",
+                    song.origKey || "",
+                    song.shift || "",
+                    song.notes || "",
+                    song.link || ""
+                ];
+                csvContent += row.map(escapeCSV).join(",") + "\r\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Acoustic_Songs_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // === 3. יבוא נתונים מ-CSV (טבלה) ===
+        function triggerImportCSV() {
+            document.getElementById('importCsvInput').click();
+        }
+
+        function parseCSV(text) {
+            const lines = [];
+            let row = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    row.push(current.trim());
+                    current = '';
+                } else if ((char === '\r' || char === '\n') && !inQuotes) {
+                    if (char === '\r' && nextChar === '\n') {
+                        i++;
+                    }
+                    row.push(current.trim());
+                    if (row.length > 0 && row.some(cell => cell !== '')) {
+                        lines.push(row);
+                    }
+                    row = [];
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            if (current || row.length > 0) {
+                row.push(current.trim());
+                if (row.some(cell => cell !== '')) {
+                    lines.push(row);
+                }
+            }
+            return lines;
+        }
+
+        async function importFromCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    let text = e.target.result;
+                    if (text.startsWith('\uFEFF')) {
+                        text = text.substring(1);
+                    }
+
+                    const rows = parseCSV(text);
+                    if (rows.length < 2) {
+                        alert("הקובץ ריק או אינו מכיל נתונים תקינים.");
+                        return;
+                    }
+
+                    const dataRows = rows.slice(1);
+                    let addedCount = 0;
+
+                    showSpinner("מיבא שירים לטבלה...");
+
+                    for (const row of dataRows) {
+                        if (!row[0]) continue;
+
+                        const songData = {
+                            title: row[0] || "שיר ללא שם",
+                            key: row[1] || "-",
+                            origKey: row[2] || "-",
+                            shift: row[3] || "0",
+                            notes: row[4] || "",
+                            link: row[5] || "",
+                            audioFiles: []
+                        };
+
+                        if (db) {
+                            await db.collection("songs").add(songData);
+                        } else {
+                            songData.id = "local_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
+                            songs.push(songData);
+                        }
+                        addedCount++;
+                    }
+
+                    if (!db) {
+                        saveLocalSongs();
+                        renderList();
+                    }
+
+                    hideSpinner();
+                    alert(`יבוא הנתונים הושלם בהצלחה! נוספו ${addedCount} שירים.`);
+                } catch (err) {
+                    console.error("Error importing CSV:", err);
+                    hideSpinner();
+                    alert("שגיאה ביבוא קובץ ה-CSV: " + err.message);
+                } finally {
+                    event.target.value = '';
+                }
+            };
+
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        function showSpinner(text) {
+            document.getElementById('spinnerText').innerText = text;
+            document.getElementById('loadingSpinner').style.display = 'flex';
+        }
+
+        function hideSpinner() {
+            document.getElementById('loadingSpinner').style.display = 'none';
+        }
+
+        function nextSong() {
+            const index = songs.findIndex(s => s.id === window.currentSongId);
+            if (index < songs.length - 1) window.openDetailScreen(songs[index + 1].id);
+        }
+
+        function prevSong() {
+            const index = songs.findIndex(s => s.id === window.currentSongId);
+            if (index > 0) window.openDetailScreen(songs[index - 1].id);
+        }
+
+        // === חשיפה ל-Global Scope (מונע את חסימת המיניפיקציה של Netlify) ===
+        window.openEditScreen = openEditScreen;
+        window.openDetailScreen = openDetailScreen;
+        window.showScreen = showScreen;
+        window.saveSong = saveSong;
+        window.deleteSong = deleteSong;
+        window.exportToCSV = exportToCSV;
+        window.triggerImportCSV = triggerImportCSV;
+        window.importFromCSV = importFromCSV;
+        window.nextSong = nextSong;
+        window.prevSong = prevSong;
+        window.removeTempAudio = removeTempAudio;
+
+        // הפעלה בטוחה ללא תלות באירועי טעינה מוקדמים או מאוחרים
+        setTimeout(() => {
+            if (!db) {
+                loadLocalSongs();
+            }
+            renderList();
+        }, 50);
+
+    </script>
+</body>
+</html>
