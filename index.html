@@ -464,7 +464,7 @@
         // טעינת שירים מ-LocalStorage במקרה שאין Firebase
         function loadLocalSongs() {
             try {
-                const localData = localStorage.getItem('acoustic_songs');
+                const localData = localStorage.getItem('hamishi_songs');
                 if (localData) {
                     songs = JSON.parse(localData);
                 } else {
@@ -478,7 +478,7 @@
 
         function saveLocalSongs() {
             try {
-                localStorage.setItem('acoustic_songs', JSON.stringify(songs));
+                localStorage.setItem('hamishi_songs', JSON.stringify(songs));
             } catch (e) {
                 console.error("Local storage save error", e);
             }
@@ -952,7 +952,7 @@
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.setAttribute("href", url);
-            link.setAttribute("download", `Acoustic_Songs_${new Date().toISOString().slice(0, 10)}.csv`);
+            link.setAttribute("download", `hamishi_Songs_${new Date().toISOString().slice(0, 10)}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
