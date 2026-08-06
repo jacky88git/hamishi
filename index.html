@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 
     <style>
         :root {
@@ -101,12 +102,26 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 12px;
             cursor: pointer;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            transition: transform 0.1s;
+            transition: transform 0.1s, box-shadow 0.1s;
         }
         .song-card:active { transform: scale(0.98); }
-        .song-title { font-size: 1.4rem; font-weight: 600; }
+        .song-title-wrap { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+        .drag-handle {
+            color: #666;
+            font-size: 1.3rem;
+            padding: 8px;
+            margin: -8px;
+            cursor: grab;
+            touch-action: none;
+            flex-shrink: 0;
+        }
+        .drag-handle:active { cursor: grabbing; color: var(--primary-color); }
+        .song-card.sortable-ghost { opacity: 0.3; }
+        .song-card.sortable-chosen { box-shadow: 0 6px 18px rgba(212,172,13,0.35); }
+        .song-title { font-size: 1.4rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .song-key-badge {
             background-color: var(--primary-color);
             color: #000;
@@ -177,12 +192,30 @@
             margin-bottom: 10px;
         }
         .audio-item span {
-            display: block;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             margin-bottom: 10px;
             color: var(--primary-color);
             font-weight: bold;
         }
-        
+        .audio-item iframe {
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            display: block;
+        }
+        .audio-item a.media-link-btn {
+            display: block;
+            text-align: center;
+            background-color: var(--primary-color);
+            color: #000;
+            padding: 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
         .edit-audio-item {
             display: flex;
             justify-content: space-between;
@@ -192,6 +225,12 @@
             border-radius: 8px;
             margin-top: 10px;
         }
+        .edit-audio-item span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+        }
         .edit-audio-item button {
             background-color: var(--danger);
             color: white;
@@ -199,6 +238,7 @@
             padding: 8px 12px;
             border-radius: 5px;
             cursor: pointer;
+            flex-shrink: 0;
         }
 
         .btn-large {
@@ -385,8 +425,11 @@
         </div>
 
         <div class="form-group" style="background-color: #252525; padding: 15px; border-radius: 10px;">
-            <label style="color: var(--primary-color);"><i class="fa-solid fa-cloud-arrow-up"></i> צירוף הקלטות</label>
-            <input type="file" id="editAudio" accept="audio/*" multiple>
+            <label style="color: var(--primary-color);"><i class="fa-brands fa-youtube"></i> קישור לשיר (YouTube / Spotify)</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="url" id="editMediaLinkInput" placeholder="https://..." dir="ltr" style="flex:1;">
+                <button type="button" onclick="window.addMediaLink()" style="flex: 0 0 auto; background-color: var(--primary-color); color:#000; border:none; border-radius:8px; padding: 0 20px; font-size:1.3rem; cursor:pointer;"><i class="fa-solid fa-plus"></i></button>
+            </div>
             <div id="editAudioList"></div>
         </div>
 
@@ -412,7 +455,7 @@
         let storage = null;
         let songs = [];
         window.currentSongId = null;
-        let tempAudioFiles = [];
+        let tempMediaLinks = [];
 
         // טעינת שירים מ-LocalStorage במקרה שאין Firebase
         function loadLocalSongs() {
@@ -488,9 +531,21 @@
             window.scrollTo(0, 0);
         }
 
+        let songListSortable = null;
+
+        // ממיין את מערך השירים לפי שדה order (שירים ללא order יורדים לסוף לפי סדר קיים)
+        function sortSongsByOrder() {
+            songs.forEach((s, idx) => {
+                if (typeof s.order !== 'number') s.order = idx + 1000; // דוחף שירים ללא order לסוף
+            });
+            songs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        }
+
         function renderList() {
             const list = document.getElementById('songList');
             if (!list) return;
+
+            sortSongsByOrder();
             list.innerHTML = '';
             
             if (songs.length === 0) {
@@ -501,13 +556,111 @@
             songs.forEach(song => {
                 const li = document.createElement('li');
                 li.className = 'song-card';
+                li.dataset.id = song.id;
                 li.onclick = () => window.openDetailScreen(song.id);
                 li.innerHTML = `
-                    <span class="song-title">${escapeHtml(song.title || 'שיר ללא שם')}</span>
+                    <div class="song-title-wrap">
+                        <i class="fa-solid fa-grip-lines drag-handle" onclick="event.stopPropagation()"></i>
+                        <span class="song-title">${escapeHtml(song.title || 'שיר ללא שם')}</span>
+                    </div>
                     <span class="song-key-badge">${escapeHtml(song.key || '-')}</span>
                 `;
                 list.appendChild(li);
             });
+
+            initSongListSortable();
+        }
+
+        // מאפשר לכל אחד מחברי ההרכב לסדר מחדש את רשימת השירים בגרירה
+        function initSongListSortable() {
+            const list = document.getElementById('songList');
+            if (!list || typeof Sortable === 'undefined') return;
+
+            if (songListSortable) {
+                songListSortable.destroy();
+                songListSortable = null;
+            }
+
+            songListSortable = Sortable.create(list, {
+                handle: '.drag-handle',
+                animation: 150,
+                delay: 0,
+                onEnd: handleSongReorder
+            });
+        }
+
+        async function handleSongReorder() {
+            const list = document.getElementById('songList');
+            if (!list) return;
+
+            const newIdOrder = Array.from(list.children)
+                .map(li => li.dataset.id)
+                .filter(Boolean);
+
+            if (newIdOrder.length === 0) return;
+
+            newIdOrder.forEach((id, index) => {
+                const song = songs.find(s => s.id === id);
+                if (song) song.order = index;
+            });
+            songs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+            if (db) {
+                try {
+                    showSpinner("שומר סדר חדש...");
+                    const batch = db.batch();
+                    newIdOrder.forEach((id, index) => {
+                        batch.update(db.collection("songs").doc(id), { order: index });
+                    });
+                    await batch.commit();
+                    hideSpinner();
+                } catch (err) {
+                    console.error("Error saving song order:", err);
+                    hideSpinner();
+                    alert("שגיאה בשמירת הסדר: " + err.message);
+                }
+            } else {
+                saveLocalSongs();
+            }
+        }
+
+        // מזהה קישורי YouTube / Spotify ומחזיר פרטי הטמעה (embed), אחרת null
+        function getMediaEmbed(url) {
+            if (!url) return null;
+            try {
+                const u = new URL(url);
+                const host = u.hostname.replace('www.', '');
+
+                // YouTube
+                if (host === 'youtu.be') {
+                    const id = u.pathname.slice(1);
+                    if (id) return { type: 'youtube', embedUrl: `https://www.youtube.com/embed/${id}` };
+                }
+                if (host === 'youtube.com' || host === 'm.youtube.com') {
+                    if (u.pathname === '/watch') {
+                        const id = u.searchParams.get('v');
+                        if (id) return { type: 'youtube', embedUrl: `https://www.youtube.com/embed/${id}` };
+                    }
+                    if (u.pathname.startsWith('/shorts/')) {
+                        const id = u.pathname.split('/')[2];
+                        if (id) return { type: 'youtube', embedUrl: `https://www.youtube.com/embed/${id}` };
+                    }
+                    if (u.pathname.startsWith('/embed/')) {
+                        return { type: 'youtube', embedUrl: url };
+                    }
+                }
+
+                // Spotify
+                if (host === 'open.spotify.com') {
+                    if (u.pathname.startsWith('/embed/')) {
+                        return { type: 'spotify', embedUrl: url };
+                    }
+                    return { type: 'spotify', embedUrl: `https://open.spotify.com/embed${u.pathname}` };
+                }
+            } catch (e) {
+                return null;
+            }
+            return null;
         }
 
         function escapeHtml(text) {
@@ -536,15 +689,30 @@
 
             const audioContainer = document.getElementById('detAudioContainer');
             audioContainer.innerHTML = '';
-            if (song.audioFiles && song.audioFiles.length > 0) {
-                song.audioFiles.forEach(file => {
-                    const audioDiv = document.createElement('div');
-                    audioDiv.className = 'audio-item';
-                    audioDiv.innerHTML = `
-                        <span><i class="fa-solid fa-headphones"></i> ${escapeHtml(file.name)}</span>
-                        <audio controls style="width: 100%;" src="${file.url}"></audio>
-                    `;
-                    audioContainer.appendChild(audioDiv);
+            const mediaLinks = song.mediaLinks || [];
+            if (mediaLinks.length > 0) {
+                mediaLinks.forEach(item => {
+                    const mediaDiv = document.createElement('div');
+                    mediaDiv.className = 'audio-item';
+                    const embed = getMediaEmbed(item.url);
+
+                    if (embed && embed.type === 'youtube') {
+                        mediaDiv.innerHTML = `
+                            <span><i class="fa-brands fa-youtube"></i> YouTube</span>
+                            <iframe src="${embed.embedUrl}" height="220" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                        `;
+                    } else if (embed && embed.type === 'spotify') {
+                        mediaDiv.innerHTML = `
+                            <span><i class="fa-brands fa-spotify"></i> Spotify</span>
+                            <iframe src="${embed.embedUrl}" height="152" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
+                        `;
+                    } else {
+                        mediaDiv.innerHTML = `
+                            <span><i class="fa-solid fa-headphones"></i> קישור להאזנה</span>
+                            <a class="media-link-btn" href="${item.url}" target="_blank" rel="noopener">פתח קישור <i class="fa-solid fa-arrow-up-left-from-square"></i></a>
+                        `;
+                    }
+                    audioContainer.appendChild(mediaDiv);
                 });
                 audioContainer.style.display = 'block';
             } else {
@@ -559,10 +727,10 @@
             document.getElementById('editHeader').innerText = isEdit ? "עריכת שיר" : "הוספת שיר חדש";
             document.getElementById('btnDelete').style.display = isEdit ? 'block' : 'none';
             
-            const fileInput = document.getElementById('editAudio');
-            if (fileInput) fileInput.value = '';
-            
-            tempAudioFiles = [];
+            const linkInput = document.getElementById('editMediaLinkInput');
+            if (linkInput) linkInput.value = '';
+
+            tempMediaLinks = [];
 
             if (isEdit) {
                 const song = songs.find(s => s.id === id);
@@ -574,7 +742,7 @@
                     document.getElementById('editShift').value = song.shift || '';
                     document.getElementById('editNotes').value = song.notes || '';
                     document.getElementById('editLink').value = song.link || '';
-                    if (song.audioFiles) tempAudioFiles = [...song.audioFiles];
+                    if (song.mediaLinks) tempMediaLinks = [...song.mediaLinks];
                 }
             } else {
                 document.getElementById('editId').value = '';
@@ -594,29 +762,42 @@
             const list = document.getElementById('editAudioList');
             if (!list) return;
             list.innerHTML = '';
-            tempAudioFiles.forEach((file, index) => {
+            tempMediaLinks.forEach((item, index) => {
+                const embed = getMediaEmbed(item.url);
+                const icon = embed && embed.type === 'youtube' ? 'fa-brands fa-youtube'
+                           : embed && embed.type === 'spotify' ? 'fa-brands fa-spotify'
+                           : 'fa-solid fa-link';
                 const div = document.createElement('div');
                 div.className = 'edit-audio-item';
                 div.innerHTML = `
-                    <span style="color: #fff; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(file.name)}</span>
-                    <button type="button" onclick="window.removeTempAudio(${index})"><i class="fa-solid fa-trash"></i> הסר</button>
+                    <span style="color: #fff;"><i class="${icon}"></i><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.url)}</span></span>
+                    <button type="button" onclick="window.removeTempMediaLink(${index})"><i class="fa-solid fa-trash"></i> הסר</button>
                 `;
                 list.appendChild(div);
             });
         }
 
-        function removeTempAudio(index) {
-            tempAudioFiles.splice(index, 1);
+        function addMediaLink() {
+            const input = document.getElementById('editMediaLinkInput');
+            if (!input) return;
+            const url = input.value.trim();
+            if (!url) return;
+
+            try {
+                new URL(url);
+            } catch (e) {
+                alert("אנא הזן קישור תקין (כולל https://)");
+                return;
+            }
+
+            tempMediaLinks.push({ url });
+            input.value = '';
             renderEditAudioList();
         }
 
-        function readFileAsDataURL(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+        function removeTempMediaLink(index) {
+            tempMediaLinks.splice(index, 1);
+            renderEditAudioList();
         }
 
         async function saveSong() {
@@ -628,43 +809,15 @@
                 return;
             }
 
-            const fileInput = document.getElementById('editAudio');
-            const filesToUpload = fileInput ? fileInput.files : [];
+            // אם הוקלד קישור בשדה אך המשתמש לא לחץ "הוסף", נוסיף אותו אוטומטית לפני השמירה
+            const pendingLinkInput = document.getElementById('editMediaLinkInput');
+            if (pendingLinkInput && pendingLinkInput.value.trim()) {
+                addMediaLink();
+            }
 
             showSpinner("שומר שיר...");
 
             try {
-                let uploadedAudioList = [...tempAudioFiles];
-
-                if (filesToUpload && filesToUpload.length > 0) {
-                    if (storage) {
-                        for (let i = 0; i < filesToUpload.length; i++) {
-                            const file = filesToUpload[i];
-                            const storageRef = storage.ref(`audio/${Date.now()}_${file.name}`);
-                            const snapshot = await storageRef.put(file);
-                            const downloadURL = await snapshot.ref.getDownloadURL();
-                            
-                            uploadedAudioList.push({
-                                name: file.name,
-                                url: downloadURL
-                            });
-                        }
-                    } else {
-                        for (let i = 0; i < filesToUpload.length; i++) {
-                            const file = filesToUpload[i];
-                            if (file.size > 5 * 1024 * 1024) {
-                                alert(`הקובץ ${file.name} גדול מ-5MB ולא ניתן לשמור אותו מקומית.`);
-                                continue;
-                            }
-                            const dataUrl = await readFileAsDataURL(file);
-                            uploadedAudioList.push({
-                                name: file.name,
-                                url: dataUrl
-                            });
-                        }
-                    }
-                }
-
                 const songData = {
                     title: titleInput,
                     key: document.getElementById('editKey').value || "-",
@@ -672,25 +825,27 @@
                     shift: document.getElementById('editShift').value || "0",
                     notes: document.getElementById('editNotes').value || "",
                     link: document.getElementById('editLink').value || "",
-                    audioFiles: uploadedAudioList
+                    mediaLinks: [...tempMediaLinks]
                 };
 
                 if (db) {
                     if (id) {
                         await db.collection("songs").doc(id).update(songData);
                     } else {
+                        songData.order = songs.length;
                         const docRef = await db.collection("songs").add(songData);
                         window.currentSongId = docRef.id;
                     }
                 } else {
                     if (id) {
+                        const existing = songs.find(s => s.id === id);
                         const index = songs.findIndex(s => s.id === id);
                         if (index !== -1) {
-                            songs[index] = { id, ...songData };
+                            songs[index] = { id, order: existing ? existing.order : songs.length, ...songData };
                         }
                     } else {
                         const newId = "local_" + Date.now();
-                        songs.push({ id: newId, ...songData });
+                        songs.push({ id: newId, order: songs.length, ...songData });
                         window.currentSongId = newId;
                     }
                     saveLocalSongs();
@@ -736,7 +891,7 @@
                 return;
             }
 
-            const headers = ["שם השיר", "סולם", "סולם מקורי", "שינוי טון", "דגשים לנגינה", "קישור"];
+            const headers = ["שם השיר", "סולם", "סולם מקורי", "שינוי טון", "דגשים לנגינה", "קישור", "קישורי מדיה (מופרדים ב-|)", "סדר"];
             let csvContent = "\uFEFF";
 
             const escapeCSV = (str) => {
@@ -747,14 +902,18 @@
 
             csvContent += headers.map(escapeCSV).join(",") + "\r\n";
 
-            songs.forEach(song => {
+            sortSongsByOrder();
+            songs.forEach((song, idx) => {
+                const mediaLinksStr = (song.mediaLinks || []).map(m => m.url).join("|");
                 const row = [
                     song.title || "",
                     song.key || "",
                     song.origKey || "",
                     song.shift || "",
                     song.notes || "",
-                    song.link || ""
+                    song.link || "",
+                    mediaLinksStr,
+                    (typeof song.order === 'number' ? song.order : idx)
                 ];
                 csvContent += row.map(escapeCSV).join(",") + "\r\n";
             });
@@ -837,11 +996,18 @@
 
                     const dataRows = rows.slice(1);
                     let addedCount = 0;
+                    let orderCursor = songs.length;
 
                     showSpinner("מיבא שירים לטבלה...");
 
                     for (const row of dataRows) {
                         if (!row[0]) continue;
+
+                        const mediaLinksStr = row[6] || "";
+                        const mediaLinks = mediaLinksStr
+                            ? mediaLinksStr.split("|").map(u => u.trim()).filter(Boolean).map(url => ({ url }))
+                            : [];
+                        const parsedOrder = parseInt(row[7], 10);
 
                         const songData = {
                             title: row[0] || "שיר ללא שם",
@@ -850,7 +1016,8 @@
                             shift: row[3] || "0",
                             notes: row[4] || "",
                             link: row[5] || "",
-                            audioFiles: []
+                            mediaLinks: mediaLinks,
+                            order: Number.isFinite(parsedOrder) ? parsedOrder : orderCursor++
                         };
 
                         if (db) {
@@ -911,7 +1078,8 @@
         window.importFromCSV = importFromCSV;
         window.nextSong = nextSong;
         window.prevSong = prevSong;
-        window.removeTempAudio = removeTempAudio;
+        window.addMediaLink = addMediaLink;
+        window.removeTempMediaLink = removeTempMediaLink;
 
         // הפעלה בטוחה ללא תלות באירועי טעינה מוקדמים או מאוחרים
         setTimeout(() => {
